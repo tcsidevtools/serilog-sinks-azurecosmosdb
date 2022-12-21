@@ -18,7 +18,7 @@
 				docs[i],
 				function (err, documentCreated) {
 					if (err) {
-						console.warn(err)
+						throw err;
 					}
 				});
 			if (!accepted) break;

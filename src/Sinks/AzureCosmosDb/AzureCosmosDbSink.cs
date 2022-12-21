@@ -12,6 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using Microsoft.Azure.Cosmos;
+using Microsoft.Azure.Cosmos.Fluent;
+using Microsoft.Azure.Cosmos.Scripts;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Serialization;
+using Serilog.Debugging;
+using Serilog.Events;
+using Serilog.Sinks.Extensions;
+using Serilog.Sinks.PeriodicBatching;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -19,18 +28,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Reflection;
-using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Azure.Cosmos;
-using Microsoft.Azure.Cosmos.Fluent;
-using Microsoft.Azure.Cosmos.Scripts;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Serialization;
-using Serilog.Core;
-using Serilog.Debugging;
-using Serilog.Events;
-using Serilog.Sinks.Extensions;
-using Serilog.Sinks.PeriodicBatching;
 
 namespace Serilog.Sinks.AzureCosmosDB
 {
@@ -50,7 +48,12 @@ namespace Serilog.Sinks.AzureCosmosDB
         public AzureCosmosDBSink(CosmosClient client, AzureCosmosDbSinkOptions options)
         {
             _formatProvider = options.FormatProvider;
-            _partitionKey = options.PartitionKey;
+
+            string partKey = options.PartitionKey;
+            if (partKey.Contains("/"))
+                partKey = partKey.Replace("/", "");
+
+            _partitionKey = partKey;
             _partitionKeyProvider = options.PartitionKeyProvider ?? new DefaultPartitionKeyProvider(_formatProvider);
 
             if ((options.TimeToLive != null) && (options.TimeToLive.Value != TimeSpan.MaxValue))
@@ -74,13 +77,15 @@ namespace Serilog.Sinks.AzureCosmosDB
             };
             client.ClientOptions.Serializer = new NewtonsoftJsonCosmosSerializer(serializerSettings);
             _client = client;
-            CreateDatabaseAndContainerIfNotExistsAsync(options.DatabaseName, options.CollectionName, options.PartitionKey).Wait();
+            CreateDatabaseAndContainerIfNotExistsAsync(options.DatabaseName, options.CollectionName, partKey).Wait();
         }
 
         public AzureCosmosDBSink(AzureCosmosDbSinkOptions options)
         {
             _formatProvider   = options.FormatProvider;
-            _partitionKey = options.PartitionKey;
+            string partKey = options.PartitionKey;
+            if (partKey.Contains("/"))
+                partKey = partKey.Replace("/", "");
             _partitionKeyProvider = options.PartitionKeyProvider ?? new DefaultPartitionKeyProvider(_formatProvider);
 
             if ((options.TimeToLive != null) && (options.TimeToLive.Value != TimeSpan.MaxValue))
@@ -120,7 +125,7 @@ namespace Serilog.Sinks.AzureCosmosDB
 
             _client = builder.Build();
 
-            CreateDatabaseAndContainerIfNotExistsAsync(options.DatabaseName, options.CollectionName, options.PartitionKey).Wait();
+            CreateDatabaseAndContainerIfNotExistsAsync(options.DatabaseName, options.CollectionName, partKey).Wait();
         }
 
         private async Task CreateDatabaseAndContainerIfNotExistsAsync(string databaseName, string containerName, string partitionKey)
@@ -281,10 +286,14 @@ namespace Serilog.Sinks.AzureCosmosDB
         {
             try
             {
-                var storedProcedureResponse = await _container.Scripts.ExecuteStoredProcedureAsync<int>(
+                var storedProcedureResponse = await _container.Scripts.ExecuteStoredProcedureAsync<string>(
                     storedProcedureId: BulkStoredProcedureId,
                     partitionKey: new PartitionKey(partitionKeyValue),
-                    parameters: new dynamic[] { args });
+                    parameters: new dynamic[] { args },
+                    new StoredProcedureRequestOptions()
+                    {
+                        
+                    });
                 if (storedProcedureResponse.StatusCode != HttpStatusCode.OK)
                 {
                     SelfLog.WriteLine("Unknown error writing to Cosmos. {0}", storedProcedureResponse.Diagnostics.ToString());
